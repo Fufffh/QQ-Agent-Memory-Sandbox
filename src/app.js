@@ -4,7 +4,6 @@ import {
   getAllMemories,
   getMemoryById,
   deleteMemoryById,
-  deleteMemoriesByUserId,
   updateMemoryById,
   getMemoriesByUserId,
   searchMemoriesByUserId,
@@ -12,7 +11,6 @@ import {
 } from './repositories/memory.repository.js'
 
 import { extractMemoryFromMessage } from './services/memory_extraction.service.js'
-import { decideMemoryDeduplication } from './services/memory_deduplication.service.js'
 
 const app = express()
 
@@ -62,132 +60,77 @@ app.post('/api/v1/memories/extract', async (request, response) => {
   }
 })
 
-app.post('/api/v1/users/:userId/memories/extract-and-save', async (
-  request,
-  response
-) => {
-  const userId = request.params.userId
-  const messageText = request.body.messageText
+app.post(
+  '/api/v1/users/:userId/memories/extract-and-save',
+  async (request, response) => {
+    const userId = request.params.userId
+    const messageText = request.body.messageText
 
-  if (typeof userId !== 'string' || !userId.trim()) {
-    return response.status(400).json({
-      error: 'userId must be a non-empty string'
-    })
-  }
-
-  if (typeof messageText !== 'string' || !messageText.trim()) {
-    return response.status(400).json({
-      error: 'messageText must be a non-empty string'
-    })
-  }
-
-  if (messageText.length > 1000) {
-    return response.status(400).json({
-      error: 'messageText must be at most 1000 characters'
-    })
-  }
-
-  try {
-    const normalizedUserId = userId.trim()
-    const extraction = await extractMemoryFromMessage(messageText.trim())
-
-    if (
-      !extraction.shouldRemember ||
-      extraction.content === null ||
-      !extraction.content.trim()
-    ) {
-      return response.json({
-        saved: false,
-        action: 'ignored',
-        extraction: extraction
+    if (typeof userId !== 'string' || !userId.trim()) {
+      return response.status(400).json({
+        error: 'userId must be a non-empty string'
       })
     }
 
-    const normalizedContent = extraction.content.trim()
-    const exactDuplicateMemory = findDuplicateMemory(
-      normalizedUserId,
-      normalizedContent
-    )
-
-    if (exactDuplicateMemory) {
-      return response.json({
-        saved: false,
-        action: 'duplicate',
-        memory: exactDuplicateMemory,
-        extraction: extraction,
-        deduplication: {
-          action: 'duplicate',
-          memoryId: exactDuplicateMemory.id,
-          content: null,
-          reason: '内容完全重复'
-        }
+    if (typeof messageText !== 'string' || !messageText.trim()) {
+      return response.status(400).json({
+        error: 'messageText must be a non-empty string'
       })
     }
 
-    const existingMemories = getMemoriesByUserId(normalizedUserId)
-    const deduplication = await decideMemoryDeduplication(
-      normalizedContent,
-      existingMemories
-    )
-
-    const matchedMemory = existingMemories.find((memory) => {
-      return memory.id === deduplication.memoryId
-    })
-
-    if (deduplication.action === 'duplicate' && matchedMemory) {
-      return response.json({
-        saved: false,
-        action: 'duplicate',
-        memory: matchedMemory,
-        extraction: extraction,
-        deduplication: deduplication
+    if (messageText.length > 1000) {
+      return response.status(400).json({
+        error: 'messageText must be at most 1000 characters'
       })
     }
 
-    if (
-      deduplication.action === 'update' &&
-      matchedMemory &&
-      deduplication.content !== null &&
-      deduplication.content.trim()
-    ) {
-      const updatedMemory = updateMemoryById(
-        matchedMemory.id,
-        deduplication.content.trim()
+    try {
+      const extraction = await extractMemoryFromMessage(messageText.trim())
+
+      if (
+        !extraction.shouldRemember ||
+        extraction.content === null ||
+        !extraction.content.trim()
+      ) {
+        return response.json({
+          saved: false,
+          extraction: extraction
+        })
+      }
+
+      const normalizedUserId = userId.trim()
+      const normalizedContent = extraction.content.trim()
+
+      const duplicateMemory = findDuplicateMemory(
+        normalizedUserId,
+        normalizedContent
       )
 
-      return response.json({
+      if (duplicateMemory) {
+        return response.status(409).json({
+          saved: false,
+          error: 'Memory already exists',
+          memory: duplicateMemory,
+          extraction: extraction
+        })
+      }
+
+      const memory = createMemory(normalizedUserId, normalizedContent)
+
+      return response.status(201).json({
         saved: true,
-        action: 'update',
-        memory: updatedMemory,
-        extraction: extraction,
-        deduplication: deduplication
+        memory: memory,
+        extraction: extraction
+      })
+    } catch (error) {
+      console.error(error)
+
+      return response.status(502).json({
+        error: 'Failed to extract and save memory'
       })
     }
-
-    const contentToSave =
-      deduplication.action === 'new' &&
-      deduplication.content !== null &&
-      deduplication.content.trim()
-        ? deduplication.content.trim()
-        : normalizedContent
-
-    const memory = createMemory(normalizedUserId, contentToSave)
-
-    return response.status(201).json({
-      saved: true,
-      action: 'new',
-      memory: memory,
-      extraction: extraction,
-      deduplication: deduplication
-    })
-  } catch (error) {
-    console.error(error)
-
-    return response.status(502).json({
-      error: 'Failed to extract and save memory'
-    })
   }
-})
+)
 
 app.get('/api/v1/memories/:id', (request, response) => {
   const memoryId = Number(request.params.id)
@@ -261,22 +204,6 @@ app.delete('/api/v1/memories/:id', (request, response) => {
   }
 
   response.json(deletedMemory)
-})
-
-app.delete('/api/v1/users/:userId/memories', (request, response) => {
-  const userId = request.params.userId
-
-  if (typeof userId !== 'string' || !userId.trim()) {
-    return response.status(400).json({
-      error: 'userId must be a non-empty string'
-    })
-  }
-
-  const deletedCount = deleteMemoriesByUserId(userId.trim())
-
-  return response.json({
-    deletedCount: deletedCount
-  })
 })
 
 app.patch('/api/v1/memories/:id', (request, response) => {

@@ -4,6 +4,7 @@ import {
   getAllMemories,
   getMemoryById,
   deleteMemoryById,
+  deleteMemoriesByUserId,
   updateMemoryById,
   getMemoriesByUserId,
   searchMemoriesByUserId,
@@ -11,6 +12,8 @@ import {
 } from './repositories/memory.repository.js'
 
 import { extractMemoryFromMessage } from './services/memory_extraction.service.js'
+import { ingestMemoryFromMessage } from './services/memory_ingestion.service.js'
+import { parseOnebotGroupMessageEvent } from './services/qq_message.service.js'
 
 const app = express()
 
@@ -85,43 +88,10 @@ app.post(
     }
 
     try {
-      const extraction = await extractMemoryFromMessage(messageText.trim())
+      const result = await ingestMemoryFromMessage(userId, messageText)
+      const statusCode = result.action === 'new' ? 201 : 200
 
-      if (
-        !extraction.shouldRemember ||
-        extraction.content === null ||
-        !extraction.content.trim()
-      ) {
-        return response.json({
-          saved: false,
-          extraction: extraction
-        })
-      }
-
-      const normalizedUserId = userId.trim()
-      const normalizedContent = extraction.content.trim()
-
-      const duplicateMemory = findDuplicateMemory(
-        normalizedUserId,
-        normalizedContent
-      )
-
-      if (duplicateMemory) {
-        return response.status(409).json({
-          saved: false,
-          error: 'Memory already exists',
-          memory: duplicateMemory,
-          extraction: extraction
-        })
-      }
-
-      const memory = createMemory(normalizedUserId, normalizedContent)
-
-      return response.status(201).json({
-        saved: true,
-        memory: memory,
-        extraction: extraction
-      })
+      return response.status(statusCode).json(result)
     } catch (error) {
       console.error(error)
 
@@ -131,6 +101,42 @@ app.post(
     }
   }
 )
+
+app.post('/api/v1/qq/onebot/events', async (request, response) => {
+  const qqMessage = parseOnebotGroupMessageEvent(request.body)
+
+  if (!qqMessage.shouldProcess) {
+    return response.json({
+      handled: false,
+      reason: qqMessage.reason,
+      groupId: qqMessage.groupId,
+      qqUserId: qqMessage.qqUserId
+    })
+  }
+
+  try {
+    const result = await ingestMemoryFromMessage(
+      qqMessage.memoryUserId,
+      qqMessage.messageText
+    )
+    const statusCode = result.action === 'new' ? 201 : 200
+
+    return response.status(statusCode).json({
+      handled: true,
+      source: 'onebot',
+      groupId: qqMessage.groupId,
+      qqUserId: qqMessage.qqUserId,
+      memoryUserId: qqMessage.memoryUserId,
+      result: result
+    })
+  } catch (error) {
+    console.error(error)
+
+    return response.status(502).json({
+      error: 'Failed to handle QQ message event'
+    })
+  }
+})
 
 app.get('/api/v1/memories/:id', (request, response) => {
   const memoryId = Number(request.params.id)
@@ -204,6 +210,22 @@ app.delete('/api/v1/memories/:id', (request, response) => {
   }
 
   response.json(deletedMemory)
+})
+
+app.delete('/api/v1/users/:userId/memories', (request, response) => {
+  const userId = request.params.userId
+
+  if (typeof userId !== 'string' || !userId.trim()) {
+    return response.status(400).json({
+      error: 'userId must be a non-empty string'
+    })
+  }
+
+  const deletedCount = deleteMemoriesByUserId(userId.trim())
+
+  return response.json({
+    deletedCount: deletedCount
+  })
 })
 
 app.patch('/api/v1/memories/:id', (request, response) => {

@@ -126,7 +126,9 @@ app.post('/api/v1/qq/onebot/events', async (request, response) => {
       source: 'onebot',
       groupId: qqMessage.groupId,
       qqUserId: qqMessage.qqUserId,
+      senderName: qqMessage.senderName,
       memoryUserId: qqMessage.memoryUserId,
+      rawMessage: qqMessage.rawMessage,
       result: result
     })
   } catch (error) {

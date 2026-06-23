@@ -59,6 +59,10 @@ const deleteMemoriesByUserIdStatement = database.prepare(`
   WHERE user_id = ?
 `)
 
+const deleteAllMemoriesStatement = database.prepare(`
+  DELETE FROM memories
+`)
+
 export function deleteMemoryById(memoryId) {
   const memory = selectMemoryByIdStatement.get(memoryId)
   if (!memory) {
@@ -72,6 +76,12 @@ export function deleteMemoryById(memoryId) {
 
 export function deleteMemoriesByUserId(userId) {
   const result = deleteMemoriesByUserIdStatement.run(userId)
+
+  return result.changes
+}
+
+export function deleteAllMemories() {
+  const result = deleteAllMemoriesStatement.run()
 
   return result.changes
 }

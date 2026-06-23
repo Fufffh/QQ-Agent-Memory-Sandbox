@@ -9,8 +9,31 @@ function getAllowedQqGroupIds() {
     .filter(Boolean)
 }
 
-function buildQqGroupMemoryUserId(groupId) {
-  return `qq_group_${groupId}`
+function buildQqGroupMemberMemoryUserId(groupId, qqUserId) {
+  return `qq_group_${groupId}_user_${qqUserId}`
+}
+
+function getSenderName(sender, qqUserId) {
+  if (sender === null || typeof sender !== 'object') {
+    return `QQ user ${qqUserId}`
+  }
+
+  if (typeof sender.card === 'string' && sender.card.trim()) {
+    return sender.card.trim()
+  }
+
+  if (typeof sender.nickname === 'string' && sender.nickname.trim()) {
+    return sender.nickname.trim()
+  }
+
+  return `QQ user ${qqUserId}`
+}
+
+function buildMemoryMessageText(senderName, qqUserId, messageText) {
+  return [
+    `Speaker: ${senderName} (${qqUserId})`,
+    `Message: ${messageText}`
+  ].join('\n')
 }
 
 export function parseOnebotGroupMessageEvent(event) {
@@ -39,11 +62,20 @@ export function parseOnebotGroupMessageEvent(event) {
   const qqUserId = String(event.user_id || '').trim()
   const messageText =
     typeof event.raw_message === 'string' ? event.raw_message.trim() : ''
+  const senderName = getSenderName(event.sender, qqUserId)
 
   if (!groupId) {
     return {
       shouldProcess: false,
       reason: 'Missing group_id'
+    }
+  }
+
+  if (!qqUserId) {
+    return {
+      shouldProcess: false,
+      reason: 'Missing user_id',
+      groupId: groupId
     }
   }
 
@@ -80,7 +112,9 @@ export function parseOnebotGroupMessageEvent(event) {
     shouldProcess: true,
     groupId: groupId,
     qqUserId: qqUserId,
-    memoryUserId: buildQqGroupMemoryUserId(groupId),
-    messageText: messageText
+    senderName: senderName,
+    memoryUserId: buildQqGroupMemberMemoryUserId(groupId, qqUserId),
+    messageText: buildMemoryMessageText(senderName, qqUserId, messageText),
+    rawMessage: messageText
   }
 }

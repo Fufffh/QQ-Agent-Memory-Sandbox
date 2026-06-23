@@ -38,6 +38,7 @@ export async function extractMemoryFromMessage(messageText) {
           'Your job is to decide whether the user message contains information worth remembering long term, and summarize daily group messages',
           'Remember only stable preferences, long-term facts, important background, explicit goals, and persistent constraints.',
           'Do not remember greetings, temporary emotions, one-time requests, verification codes, passwords, ID numbers, bank card numbers, or other sensitive information.',
+          'If the input includes a Speaker line, attribute the memory to that speaker instead of saying "用户".',
           'Both content and reason must be short Chinese summaries, not long explanations.',
           'If the message is worth remembering, return shouldRemember=true and write content in concise Chinese within 60 Chinese characters.',
           'If the message is not worth remembering, return shouldRemember=false and content must be null.',
